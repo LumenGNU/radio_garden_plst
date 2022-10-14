@@ -1,0 +1,30 @@
+
+mkdir -p ./pages.m3u
+
+count=$(ls ./pages.json | wc -l)
+
+for _F in ./pages.json/*
+do
+
+  echo "$((count--)) ${_F}"
+
+  s_title=$(jq -jr '.data | (select (.subtitle != null) | .subtitle, " - "), .title, "\n"' "${_F}" | tr '/' '_')
+  M3U_FILE="./pages.m3u/${s_title}.$(basename -s.json ${_F}).m3u8"
+
+  [ -f "${M3U_FILE}" ] && continue
+
+  :> "${M3U_FILE}"
+
+  trap 'rm "${M3U_FILE}" ; exit' ERR SIGINT SIGTERM
+
+  echo "#EXTM3U" > "${M3U_FILE}"
+  echo "#PLAYLIST:${s_title}" >> "${M3U_FILE}"
+  echo "#ID:$(basename -s.json ${_F})" >> "${M3U_FILE}"
+  
+
+  jq -jr '. as $R | .data.content[0].items[] | select (.href != null) | ("#EXTINF:-1 radio=\"true\"", (select ($R.data.subtitle != null) | " group-title=\"", $R.data.subtitle, "\""), ",", ($R.data.title), " - ", .title, "\n", .href, "\n")' "${_F}" |
+        sed 's|/listen/.\+/\(.\+\)|_get_from_ http://radio.garden/api/ara/content/listen/\1/channel.mp3|' >> "${M3U_FILE}"
+  
+  trap - ERR SIGINT SIGTERM
+done
+   
