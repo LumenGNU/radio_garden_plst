@@ -1,0 +1,49 @@
+#!/bin/bash
+
+set -e
+
+. config
+
+count=$(find "${out_dir_pls}" -name '*.json' | wc -l)
+
+IFS=$'\n'
+for _f in $(find "${out_dir_pls}" -name '*.json')
+do
+
+    TITLE=$(jq -jr '.data | .title' "${_f}")
+    
+    m3u_file="$(dirname ${_f})/${TITLE}.m3u8"
+    groupID="$(basename $(dirname ${_f}))"
+    echo "$((count--)) : ${m3u_file}"
+
+    if [[ ! -f "${m3u_file}" ]]
+    then
+        trap 'rm "${m3u_file}" ' INT TERM
+        
+        echo "#EXTM3U" > "${m3u_file}"
+        echo "#PLAYLIST:${TITLE}" >> "${m3u_file}"
+        echo "#ID:$(basename -s.json ${_f})" >> "${m3u_file}"
+
+        for _l in $(jq -jr '.data.content[].items[] | "title=", .title, "\n", "href=", .href, "\n"' "${_f}")
+        do
+            if [[ "${_l}" =~ "href=" ]]
+            then
+                _id="$(basename ${_l##href=})"
+                curl -s -I "https://radio.garden/api/ara/content/listen/${_id}/channel.mp3?$(< indifer)" |
+                  grep -Po "location: \K[[:print:]]+" >> "${m3u_file}"
+
+            elif [[ "${_l}" =~ "title=" ]]
+            then
+                echo "#EXTINF:-1 radio=\"true\" group-title=\"${groupID}\", ${_l##title=}" >> "${m3u_file}"
+            fi
+        done
+
+        trap - INT TERM
+        rm "${_f}"
+    # else
+    #     echo "ERR (${_f}) файл существует ${m3u_file}"
+    #     exit
+    fi 
+done
+
+exit 0

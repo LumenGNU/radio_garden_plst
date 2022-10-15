@@ -1,5 +1,0 @@
-while read _f
-do
-    _fd=$(eval printf %s "${_f}" 2> /dev/null)
-    touch ./id/${_fd}
-done < <(curl https://radio.garden/api/ara/content/places |  jq '.data.list[] | .id')
