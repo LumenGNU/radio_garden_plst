@@ -9,41 +9,54 @@ count=$(find "${out_dir_pls}" -name '*.json' | wc -l)
 IFS=$'\n'
 for _f in $(find "${out_dir_pls}" -name '*.json')
 do
+    X=1
 
     TITLE=$(jq -jr '.data | .title' "${_f}")
+
+    [ -z "${TITLE}" ] && { echo "${_f}: TITLE - пустая сстрока" ; exit ; }
     
-    m3u_file="$(dirname ${_f})/${TITLE}.m3u8"
+    m3u_file="$(dirname ${_f})/${TITLE//\//-}.m3u8" # в имени файла заменить все / на -
     groupID="$(basename $(dirname ${_f}))"
     echo "$((count--)) : ${m3u_file}"
 
-    if [[ ! -f "${m3u_file}" ]]
-    then
-        trap 'rm "${m3u_file}" ' INT TERM
-        
-        echo "#EXTM3U" > "${m3u_file}"
-        echo "#PLAYLIST:${TITLE}" >> "${m3u_file}"
-        echo "#ID:$(basename -s.json ${_f})" >> "${m3u_file}"
+    # если файл уже существует задать новое имя name-(N+1).m2u8 
+    # и если (N+1)==2 переименовать оригинальный файл name-1.m2u8
+    # FIXME: неработает если повторов больше двух
+    while [[ -f "${m3u_file}" ]]
+    do
+        old_F="${m3u_file}"
+        m3u_file="${m3u_file/.m3u8/-$((++X)).m3u8}"
+        echo "переименовано в ${m3u_file}"
+        if [ "$X" = "2" ]
+        then
+            mv "${old_F}" "${old_F/.m3u8/-1.m3u8}"
+            echo "переименовано в ${old_F/.m3u8/-1.m3u8}"
+        fi
+    done
+    
+    trap 'rm "${m3u_file}" ' INT TERM
 
-        for _l in $(jq -jr '.data.content[].items[] | "title=", .title, "\n", "href=", .href, "\n"' "${_f}")
-        do
-            if [[ "${_l}" =~ "href=" ]]
-            then
-                _id="$(basename ${_l##href=})"
-                curl -s -I "https://radio.garden/api/ara/content/listen/${_id}/channel.mp3?$(< indifer)" |
-                  grep -Po "location: \K[[:print:]]+" >> "${m3u_file}"
+    echo "#EXTM3U" > "${m3u_file}"
+    echo "#PLAYLIST:${TITLE}" >> "${m3u_file}"
+    echo "#ID:$(basename -s.json ${_f})" >> "${m3u_file}"
 
-            elif [[ "${_l}" =~ "title=" ]]
-            then
-                echo "#EXTINF:-1 radio=\"true\" group-title=\"${groupID}\", ${_l##title=}" >> "${m3u_file}"
-            fi
-        done
+    for _l in $(jq -jr '.data.content[].items[] | "title=", .title, "\n", "href=", .href, "\n"' "${_f}")
+    do
+        if [[ "${_l}" =~ "href=" ]]
+        then
+            _id="$(basename ${_l##href=})"
+            curl -s -I "https://radio.garden/api/ara/content/listen/${_id}/channel.mp3?$(< indifer)" |
+                grep -Po "location: \K[[:print:]]+" >> "${m3u_file}"
 
-        trap - INT TERM
-        rm "${_f}"
-    # else
-    #     echo "ERR (${_f}) файл существует ${m3u_file}"
-    #     exit
-    fi 
+        elif [[ "${_l}" =~ "title=" ]]
+        then
+            echo "#EXTINF:-1 radio=\"true\" group-title=\"${groupID}\", ${_l##title=}" >> "${m3u_file}"
+        fi
+    done
+
+    trap - INT TERM
+    rm "${_f}"
+
 done
 
 exit 0
