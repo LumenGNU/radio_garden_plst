@@ -1,6 +1,0 @@
-
-out_dir="${TMPDIR:-.}/rg_out"
-mkdir -p "${out_dir}"
-out_dir_pls="${out_dir}/pls"
-mkdir -p "${out_dir_pls}"
-out_placeJson="${out_dir}/places.json"

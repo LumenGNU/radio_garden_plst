@@ -1,7 +1,0 @@
-#!/bin/bash
-
-. config
-
-curl https://radio.garden/api/ara/content/places |  jq '.' > ${out_placeJson}
-
-exit 0

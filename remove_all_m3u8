@@ -1,7 +1,0 @@
-#!/bin/bash
-
-set -e
-
-. config
-
-find "${out_dir_pls}" -name '*.m3u8' -type f -delete
