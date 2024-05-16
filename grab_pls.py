@@ -8,13 +8,14 @@ import json
 import math
 import random
 import sys
-from typing import Final, List, Dict
+from typing import Final, List, Dict, Tuple
 
 import xml.etree.ElementTree as ET
 import uuid
 import requests
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 from rich.console import Console
+import os
 
 
 V = ""
@@ -26,24 +27,75 @@ CONSOLE = Console()
 
 F_: Final[str] = "./Radio Garden.xspf"
 
-CACHE_FILE: Final[str]  # Определение переменной для пути к файлу кэша
+
+CACHE_DIR: Final[str] = "cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 
-def deg2num(lat_deg, lon_deg, zoom):
-    """
-    Конвертирует географические координаты в координаты тайлов.
+class Map:
 
-    :param lat_deg: Широта в градусах.
-    :param lon_deg: Долгота в градусах.
-    :param zoom: Уровень масштаба (zoom level).
-    :return: Координаты тайлов (x, y).
-    """
-    lat_rad = math.radians(lat_deg)
-    n = 2.0**zoom
-    xtile = int((lon_deg + 180.0) / 360.0 * n)
-    ytile = int((1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2.0 * n)
+    TILE_SIZE = 256
 
-    return zoom, xtile, ytile
+    @staticmethod
+    def deg2num(lat_deg: float, lon_deg: float, zoom: int) -> Tuple[int, int, int]:
+        """
+        конвертирует географические координаты (широта и долгота в градусах) в координаты тайлов на карте на
+        заданном уровне масштаба (zoom). Он возвращает кортеж (zoom, xtile, ytile), где xtile и ytile — это
+        координаты тайла, который содержит указанную точку.
+
+        :param lat_deg: Широта в градусах.
+        :param lon_deg: Долгота в градусах.
+        :param zoom: Уровень масштаба (zoom level).
+        """
+
+        lat_rad = math.radians(lat_deg)
+        n = 2.0**zoom
+        xtile = int((lon_deg + 180.0) / 360.0 * n)
+        ytile = int((1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2.0 * n)
+
+        return zoom, xtile, ytile
+
+    @staticmethod
+    def deg2tile(lat_deg: float, lon_deg: float, zoom: int) -> Tuple[int, int, int, float, float]:
+        """
+        Похож на deg2num, но дополнительно возвращает пиксельные координаты внутри тайла (pixel_x, pixel_y).
+        Эти значения показывают, где внутри тайла находится указанная точка, что позволяет понять, насколько точно
+        она центрирована.
+        """
+
+        lat_rad = math.radians(lat_deg)
+        n = 2.0**zoom
+        xtile_f = (lon_deg + 180.0) / 360.0 * n
+        ytile_f = (1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2.0 * n
+        xtile = int(xtile_f)
+        ytile = int(ytile_f)
+        xpixel = (xtile_f - xtile) * Map.TILE_SIZE  # 256 - размер тайла в пикселях
+        ypixel = (ytile_f - ytile) * Map.TILE_SIZE
+        return zoom, xtile, ytile, xpixel, ypixel
+
+    @staticmethod
+    def find_best_tile(lat_deg: float, lon_deg: float) -> Tuple[int, int, int]:
+        """определяет уровень масштаба, при котором точка находится ближе всего к центру тайла. Функция
+        find_best_zoom вычисляет расстояние от точки до центра тайла (128, 128) на каждом уровне масштаба и
+        возвращает zoom уровень с минимальным расстоянием. Это позволит вам определить, на каком уровне масштаба
+        точка будет максимально центрирована в тайле."""
+
+        best_tile = None
+        min_distance = float("inf")
+
+        for zoom in range(6, 12, 1):  # Перебор уровней масштаба от 3 до 18 с шагом 3
+            _, xtile, ytile, pixel_x, pixel_y = Map.deg2tile(lat_deg, lon_deg, zoom)
+            # Расчет расстояния от точки до центра тайла
+            distance = math.sqrt(
+                (pixel_x - (Map.TILE_SIZE / 2)) ** 2 + (pixel_y - (Map.TILE_SIZE / 2)) ** 2
+            )  # 128 - центр тайла для 256x256
+            if distance < min_distance:
+                min_distance = distance
+                best_tile = (zoom, xtile, ytile)
+
+        if not best_tile:
+            raise ValueError
+        return best_tile
 
 
 class Xspf:
@@ -51,6 +103,15 @@ class Xspf:
 
         self.total_elements = 0
         self.current_proccess = 0
+
+        self.rg_version = ""
+        response = requests.get(PLACES, timeout=30)
+        response.raise_for_status()  # Проверка на ошибки HTTP
+        data = response.json()
+
+        if not data["version"]:
+            raise ValueError
+        self.rg_version = data["version"]
 
         self.playlist = ET.Element("playlist", xmlns="http://xspf.org/ns/0/", version="1")
         self.title = title
@@ -88,11 +149,8 @@ class Xspf:
         ET.SubElement(track, "album").text = city
         ## ====
 
-        style = "light_all"
-        zoom = 6
-        z, x, y = deg2num(geo[1], geo[0], zoom)
-        sub_dmn = random.choice("abcd")
-        img_url = f"https://{sub_dmn}.basemaps.cartocdn.com/{style}/{z}/{x}/{y}.png"
+        z, x, y = Map.find_best_tile(geo[1], geo[0])
+        img_url = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
         ET.SubElement(track, "image").text = img_url
 
     def __str__(self):
@@ -111,7 +169,7 @@ class Xspf:
         data = response.json()
         info("Получено:\n")
 
-        countries: Dict[str, List[str]] = {}
+        countries = {}
         zones = data["data"]["list"]
         info(f"  зон = {len(zones)}\n")
         for zone in zones:
@@ -130,9 +188,7 @@ class Xspf:
 
     def _fetch_cities(self, country_name, cities, progress, task):
         for id_, geo in cities:
-            response = requests.get(f"{CONTENT_PAGE}/{id_}/channels", timeout=30)
-            response.raise_for_status()  # Проверка на ошибки HTTP
-            data = response.json()
+            data = self._fetch_json(id_)
             city_name = data["data"]["title"]
             self.current_proccess += 1
             remaining = self.total_elements - self.current_proccess
@@ -156,81 +212,65 @@ class Xspf:
                             stream_id = page["url"].split("/")[-1]
                             url = f"{CONTENT_LISTEN}/{stream_id}/channel.mp3?r=1&1715617284592"
                             info(f"    - {n}) {station_title}; {{ {stream_id}; ")
-                            station_stream_url = get_redirect_url(url)
+                            station_stream_url = self._get_redirect_url(stream_id, url)
                             info(f"{station_stream_url} }}\n")
 
                             self.add_track(station_stream_url, station_title, country_name, city_name, geo)
 
+    def _fetch_json(self, id_):
+        cached_json = os.path.join(CACHE_DIR, self.rg_version, f"{id_}.json")
+
+        # Проверяем, существует ли кэшированный файл
+        if os.path.exists(cached_json):
+            with open(cached_json, "r") as file:
+                data = json.load(file)
+        else:
+            # Выполняем запрос, если файл не существует
+            response = requests.get(f"{CONTENT_PAGE}/{id_}/channels", timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            # Создаем директорию, если её нет
+            os.makedirs(os.path.dirname(cached_json), exist_ok=True)
+
+            # Сохраняем данные в кэшированный файл
+            with open(cached_json, "w") as file:
+                json.dump(data, file)
+
+        return data
+
+    def _get_redirect_url(self, id_, url):
+        cached_url = os.path.join(CACHE_DIR, self.rg_version, f"{id_}.url")
+
+        # Проверяем, существует ли кэшированный файл
+        if os.path.exists(cached_url):
+            with open(cached_url, "r") as file:
+                data = json.load(file)
+                return data["url"]
+        else:
+            # Выполняем запрос, если файл не существует
+            response = requests.get(
+                url, allow_redirects=False, timeout=30
+            )  # Выполняем запрос, не следуя перенаправлениям
+            if 300 <= response.status_code < 400:
+                redirect_url = response.headers.get("Location")
+                if redirect_url:
+                    data = {"url": redirect_url}
+
+                    # Создаем директорию, если её нет
+                    os.makedirs(os.path.dirname(cached_url), exist_ok=True)
+
+                    # Сохраняем данные в кэшированный файл
+                    with open(cached_url, "w") as file:
+                        json.dump(data, file)
+
+                    return data["url"]
+            else:
+                raise ValueError("No redirect or unexpected response")
+
 
 def info(str_):
     print(str_, end="", file=sys.stderr)
-
-
-CACHE_FILE: Final[str]
-
-
-def load_cache():
-    """
-    Загружает кэшированные данные из файла.
-
-    :param cache_file: Путь к файлу с кэшированными данными.
-    :return: Кэшированные данные или пустой словарь, если файл не существует.
-    """
-    global CACHE_FILE
-
-    response = requests.get(PLACES, timeout=30)
-    response.raise_for_status()  # Проверка на ошибки HTTP
-    data = response.json()
-
-    if not data["version"]:
-        raise ValueError
-    CACHE_FILE = f'{data["version"]}.cache'
-
-    try:
-        with open(CACHE_FILE, "r") as file:
-            return json.load(file)
-    except FileNotFoundError:
-        return {}
-
-
-cache_streams = load_cache()
-
-
-def save_cache(cache):
-    """
-    Сохраняет данные в файл для кэширования.
-
-    :param cache: Данные для сохранения.
-    :param cache_file: Путь к файлу кэша.
-    """
-    with open(CACHE_FILE, "w") as file:
-        json.dump(cache, file)
-
-
-def get_redirect_url(url):
-    """
-    Attempts to connect to the given URL and captures the redirect URL without following it.
-
-    Args:
-    url (str): The initial URL to connect.
-    cache (dict): Кэшированные данные.
-
-    Returns:
-    str: The URL to which a redirect was attempted, or None if there was no redirect.
-    """
-
-    if url in cache_streams:
-        return cache_streams[url]
-
-    response = requests.get(url, allow_redirects=False, timeout=30)  # Выполняем запрос, не следуя перенаправлениям
-    if 300 <= response.status_code < 400:
-        redirect_url = response.headers.get("Location")
-        if redirect_url:
-            cache_streams[url] = redirect_url
-            save_cache(cache_streams)
-        return redirect_url
-    else:
-        raise ValueError("No redirect or unexpected response")
 
 
 if __name__ == "__main__":
