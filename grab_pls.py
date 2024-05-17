@@ -150,7 +150,10 @@ class Xspf:
         ## ====
 
         z, x, y = Map.find_best_tile(geo[1], geo[0])
-        img_url = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        s = random.choice("abcd")
+        r = ""
+        img_url = f"https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+        # img_url = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
         ET.SubElement(track, "image").text = img_url
 
     def __str__(self):
@@ -222,7 +225,7 @@ class Xspf:
 
         # Проверяем, существует ли кэшированный файл
         if os.path.exists(cached_json):
-            with open(cached_json, "r") as file:
+            with open(cached_json, "r", encoding="utf-8") as file:
                 data = json.load(file)
         else:
             # Выполняем запрос, если файл не существует
@@ -234,7 +237,7 @@ class Xspf:
             os.makedirs(os.path.dirname(cached_json), exist_ok=True)
 
             # Сохраняем данные в кэшированный файл
-            with open(cached_json, "w") as file:
+            with open(cached_json, "w", encoding="utf-8") as file:
                 json.dump(data, file)
 
         return data
@@ -244,7 +247,7 @@ class Xspf:
 
         # Проверяем, существует ли кэшированный файл
         if os.path.exists(cached_url):
-            with open(cached_url, "r") as file:
+            with open(cached_url, "r", encoding="utf-8") as file:
                 data = json.load(file)
                 return data["url"]
         else:
@@ -261,7 +264,7 @@ class Xspf:
                     os.makedirs(os.path.dirname(cached_url), exist_ok=True)
 
                     # Сохраняем данные в кэшированный файл
-                    with open(cached_url, "w") as file:
+                    with open(cached_url, "w", encoding="utf-8") as file:
                         json.dump(data, file)
 
                     return data["url"]
