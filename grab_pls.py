@@ -19,9 +19,11 @@ import os
 
 
 V = ""
-PLACES: Final[str] = "https://radio.garden/api/ara/content/places"
+ALL_PLACES: Final[str] = "https://radio.garden/api/ara/content/places"
+ALL_PLAYLISTS: Final[str] = "https://radio.garden/api/ara/content/secure/browse/playlists"
 CONTENT_PAGE: Final[str] = "https://radio.garden/api/ara/content/page"
 CONTENT_LISTEN: Final[str] = "https://radio.garden/api/ara/content/listen"
+CONTENT_CHANEL: Final[str] = "https://radio.garden/api/ara/content/channel"
 
 CONSOLE = Console()
 
@@ -83,7 +85,7 @@ class Map:
         best_tile = None
         min_distance = float("inf")
 
-        for zoom in range(6, 12, 1):  # Перебор уровней масштаба от 3 до 18 с шагом 3
+        for zoom in range(7, 13, 1):  # Перебор уровней масштаба
             _, xtile, ytile, pixel_x, pixel_y = Map.deg2tile(lat_deg, lon_deg, zoom)
             # Расчет расстояния от точки до центра тайла
             distance = math.sqrt(
@@ -99,45 +101,54 @@ class Map:
 
 
 class Xspf:
-    def __init__(self, title="Playlist"):
+    def __init__(self, title="Playlist", target_url=None, cach_version=None):
 
         self.total_elements = 0
         self.current_proccess = 0
 
-        self.rg_version = ""
-        response = requests.get(PLACES, timeout=30)
-        response.raise_for_status()  # Проверка на ошибки HTTP
-        data = response.json()
+        self.target = target_url if target_url else ALL_PLACES
 
-        if not data["version"]:
-            raise ValueError
-        self.rg_version = data["version"]
+        self.rg_version = ""
+        if not cach_version:
+            response = requests.get(self.target, timeout=30)
+            response.raise_for_status()  # Проверка на ошибки HTTP
+            data = response.json()
+
+            if not data["version"]:
+                raise ValueError
+            self.rg_version = data["version"]
+        else:
+            self.rg_version = cach_version
 
         self.playlist = ET.Element("playlist", xmlns="http://xspf.org/ns/0/", version="1")
         self.title = title
-        ET.register_namespace("aimp", "http://www.aimp.ru/playlist/ns/0/")
+
+        ET.SubElement(self.playlist, "title").text = self.title
+        ET.SubElement(self.playlist, "identifier").text = str(uuid.uuid4())
+
+        # ET.register_namespace("aimp", "http://www.aimp.ru/playlist/ns/0/")
 
         # Добавление Summary Entry сразу перед созданием плейлиста
-        summary = ET.SubElement(self.playlist, "extension", application="http://www.aimp.ru/playlist/summary/0")
-        ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="ID").text = str(uuid.uuid4())
-        ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="Name").text = self.title
-        ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="NameIsAutoSet").text = "0"
-        ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="Shuffled").text = "0"
-        ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="UserReordered").text = "0"
-        ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="SortingTemplate").text = (
-            "%Artist %Year %Album"
-        )
+        # summary = ET.SubElement(self.playlist, "extension", application="http://www.aimp.ru/playlist/summary/0")
+        # ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="ID").text = str(uuid.uuid4())
+        # ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="Name").text = self.title
+        # ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="NameIsAutoSet").text = "0"
+        # ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="Shuffled").text = "0"
+        # ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="UserReordered").text = "0"
+        # ET.SubElement(summary, "{http://www.aimп.ru/playlist/ns/0/}prop", name="SortingTemplate").text = (
+        #     "%Artist %Year %Album"
+        # )
 
-        settings = ET.SubElement(self.playlist, "extension", application="http://www.aimп.ru/playlist/settings/0")
-        ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="Flags").text = str(554)
-        ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="FormatMainLine").text = "%Title"
-        ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="FormatSecondLine").text = (
-            "%Artist - %Album"
-        )
-        ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="GroupFormatLine").text = "GRP_TITLE"
-        ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="GroupFormatLine").text = (
-            "%Artist %Album"
-        )
+        # settings = ET.SubElement(self.playlist, "extension", application="http://www.aimп.ru/playlist/settings/0")
+        # ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="Flags").text = str(554)
+        # ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="FormatMainLine").text = "%Title"
+        # ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="FormatSecondLine").text = (
+        #     "%Artist - %Album"
+        # )
+        # ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="GroupFormatLine").text = "GRP_TITLE"
+        # ET.SubElement(settings, "{http://www.aimп.ru/playlist/ns/0/}prop", name="GroupFormatLine").text = (
+        #     "%Artist %Album"
+        # )
 
         self.tracklist = ET.SubElement(self.playlist, "trackList")
 
@@ -148,13 +159,14 @@ class Xspf:
         ET.SubElement(track, "creator").text = country
         ET.SubElement(track, "album").text = city
         ## ====
+        if geo:
+            z, x, y = Map.find_best_tile(geo[1], geo[0])
+            s = random.choice("abcd")
+            r = ""
+            # img_url = f"https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+            img_url = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 
-        z, x, y = Map.find_best_tile(geo[1], geo[0])
-        s = random.choice("abcd")
-        r = ""
-        img_url = f"https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        # img_url = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        ET.SubElement(track, "image").text = img_url
+            ET.SubElement(track, "image").text = img_url
 
     def __str__(self):
         return ET.tostring(self.playlist, encoding="unicode")
@@ -167,31 +179,68 @@ class Xspf:
     def fill(self, progress):
 
         info("Получение списка зон...\n")
-        response = requests.get(PLACES, timeout=30)
-        response.raise_for_status()  # Проверка на ошибки HTTP
-        data = response.json()
-        info("Получено:\n")
+        # response = requests.get(PLACES, timeout=30)
+        # response.raise_for_status()  # Проверка на ошибки HTTP
+        # data = response.json()
 
-        countries = {}
-        zones = data["data"]["list"]
-        info(f"  зон = {len(zones)}\n")
-        for zone in zones:
-            country_name = zone["country"]
-            if country_name in countries:
-                countries[country_name].append((zone["id"], zone["geo"]))
-            else:
-                countries[country_name] = [(zone["id"], zone["geo"])]
+        ext = (self.target).split("/")[-1]
+        data = self._fetch_json(f"{self.rg_version}_{ext}", self.target)
+        info(f"V: {self.rg_version}, Target: {self.target}. Получено:\n")
 
-        self.total_elements = sum(len(cities) for cities in countries.values())
-        task = progress.add_task("[cyan]Обработка зон...", total=self.total_elements)
-        progress.update(task, total=self.total_elements)
+        if "list" in data["data"]:
+            countries = {}
+            info("Обработка зон")
+            zones = data["data"]["list"]
+            info(f"  зон = {len(zones)}\n")
+            for zone in zones:
+                country_name = zone["country"]
+                if country_name in countries:
+                    countries[country_name].append((zone["id"], zone["geo"]))
+                else:
+                    countries[country_name] = [(zone["id"], zone["geo"])]
 
-        for country_name, cities in countries.items():
-            self._fetch_cities(country_name, cities, progress, task)
+            self.total_elements = sum(len(cities) for cities in countries.values())
+            task = progress.add_task("[cyan]Обработка зон...", total=self.total_elements)
+            progress.update(task, total=self.total_elements)
+
+            for country_name, cities in countries.items():
+                self._fetch_cities(country_name, cities, progress, task)
+
+        elif "content" in data["data"]:
+            info("Обработка плейлистов")
+            contents = data["data"]["content"]
+            for content in contents:
+
+                if content["type"] == "playlist-excerpt":
+                    list_url = content["page"]["url"]
+                    list_id = list_url.split("/")[-1]
+                    list_data = self._fetch_json(list_id, f"https://radio.garden/api/ara/content/secure{list_url}")[
+                        "data"
+                    ]
+                    list_title = list_data["title"]
+                    info(f"\n\n*** {list_title}\n")
+                    for list_ in list_data["content"]:
+                        if list_["type"] == "list":
+                            for n, item in enumerate(list_["items"], start=1):
+                                page = item["page"]
+                                station_title = page["title"]
+                                radio_id = page["url"].split("/")[-1]
+                                url = f"{CONTENT_LISTEN}/{radio_id}/channel.mp3?r=1&1715617284592"
+                                info(f"    - {n}) {station_title}; {{ {radio_id}; ")
+
+                                station_stream_url = self._get_redirect_url(radio_id, url)
+                                info(f"{station_stream_url} }}\n")
+
+                                self.add_track(
+                                    station_stream_url, station_title, list_title, "Radio Garden", geo=None
+                                )
+
+        else:
+            raise ValueError
 
     def _fetch_cities(self, country_name, cities, progress, task):
         for id_, geo in cities:
-            data = self._fetch_json(id_)
+            data = self._fetch_json(id_, f"{CONTENT_PAGE}/{id_}/channels")
             city_name = data["data"]["title"]
             self.current_proccess += 1
             remaining = self.total_elements - self.current_proccess
@@ -212,15 +261,16 @@ class Xspf:
                         if "page" in item:  # Проверяем наличие 'title' и 'href'
                             page = item["page"]
                             station_title = page["title"]
-                            stream_id = page["url"].split("/")[-1]
-                            url = f"{CONTENT_LISTEN}/{stream_id}/channel.mp3?r=1&1715617284592"
-                            info(f"    - {n}) {station_title}; {{ {stream_id}; ")
-                            station_stream_url = self._get_redirect_url(stream_id, url)
+                            radio_id = page["url"].split("/")[-1]
+                            url = f"{CONTENT_LISTEN}/{radio_id}/channel.mp3?r=1&1715617284592"
+                            info(f"    - {n}) {station_title}; {{ {radio_id}; ")
+
+                            station_stream_url = self._get_redirect_url(radio_id, url)
                             info(f"{station_stream_url} }}\n")
 
                             self.add_track(station_stream_url, station_title, country_name, city_name, geo)
 
-    def _fetch_json(self, id_):
+    def _fetch_json(self, id_, url):
         cached_json = os.path.join(CACHE_DIR, self.rg_version, f"{id_}.json")
 
         # Проверяем, существует ли кэшированный файл
@@ -229,7 +279,7 @@ class Xspf:
                 data = json.load(file)
         else:
             # Выполняем запрос, если файл не существует
-            response = requests.get(f"{CONTENT_PAGE}/{id_}/channels", timeout=30)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             data = response.json()
 
@@ -279,8 +329,7 @@ def info(str_):
 if __name__ == "__main__":
 
     title = "Radio Garden"
-    xspf = Xspf(title)
-
+    xspf = Xspf(title, target_url=ALL_PLACES)
     with Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
